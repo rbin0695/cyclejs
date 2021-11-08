@@ -5,6 +5,13 @@ import { makeDomApi } from './api';
 import { DomDriver } from './driver';
 
 export { h, VNode } from 'snabbdom';
+export { makeDomApi, DomApi } from './api';
+export {
+  DomCommand,
+  DomEvent,
+  AddEventListenerCommand,
+  RemoveEventListenerCommand,
+} from './types';
 
 export * from './hyperscript-helpers';
 

@@ -1,74 +1,107 @@
-// tslint:disable-next-line
-import 'symbol-observable';
-import {Stream} from 'xstream';
 import * as assert from 'assert';
-import {Observable, of, from, combineLatest} from 'rxjs';
-import {take, skip, map} from 'rxjs/operators';
-import {setup} from '@cycle/rxjs-run';
-import {setAdapt} from '@cycle/run/lib/adapt';
+import { pipe, subscribe, makeSubject, combineWith } from '@cycle/callbags';
+import { applyApis } from '@cycle/run';
 import {
-  h3,
-  h4,
-  h2,
-  div,
-  h,
-  mockDOMSource,
-  MockedDOMSource,
-  VNode,
+  DomApi,
+  DomCommand,
+  makeDomApi,
+  AddEventListenerCommand,
 } from '../../src/index';
 
-describe('mockDOMSource', function() {
-  beforeEach(() => {
-    setAdapt(from as any);
+describe('pure use of the DOM API', () => {
+  it('should make a stream for clicks on `.foo`', done => {
+    function Main(sources: { DOM: DomApi }) {
+      pipe(
+        sources.DOM.select('.foo').events('click'),
+        subscribe(
+          (ev: any) => {
+            assert.strictEqual(ev.value, 135);
+            done();
+          },
+          () => assert.fail('should not complete')
+        )
+      );
+    }
+
+    const subject = makeSubject<any>();
+    const sinks = applyApis(Main, { DOM: makeDomApi })({ DOM: subject });
+
+    pipe(
+      sinks.DOM,
+      subscribe((cmd: DomCommand) => {
+        if ('commandType' in cmd) {
+          assert.strictEqual(cmd.commandType, 'addEventListener');
+          const c = cmd as AddEventListenerCommand;
+          assert.strictEqual(c.type, 'click');
+          assert.strictEqual(c.selector, '.foo');
+          subject(1, { _cycleId: cmd.id, value: 135 });
+        } else {
+          assert.fail('Missing command type in dom command');
+        }
+      })
+    );
   });
 
-  it('should be in accessible in the API', function() {
-    assert.strictEqual(typeof mockDOMSource, 'function');
+  it('should make multiple user event streams', done => {
+    let event = 0;
+    function Main(sources: { DOM: DomApi }) {
+      pipe(
+        combineWith(
+          (a: any, b: any) => a.value * b.value,
+          sources.DOM.select('.foo').events('click'),
+          sources.DOM.select('.bar').events('scroll')
+        ),
+        subscribe(
+          ev => {
+            assert.strictEqual(ev, 270);
+            event++;
+          },
+          () => assert.fail('should not complete')
+        )
+      );
+    }
+
+    const subject = makeSubject<any>();
+    const sinks = applyApis(Main, { DOM: makeDomApi })({ DOM: subject });
+
+    let foo = 0;
+    let bar = 0;
+    pipe(
+      sinks.DOM,
+      subscribe((cmd: DomCommand) => {
+        if ('commandType' in cmd) {
+          assert.strictEqual(cmd.commandType, 'addEventListener');
+          const c = cmd as AddEventListenerCommand;
+          if (c.selector === '.foo') {
+            foo++;
+            assert.strictEqual(c.type, 'click');
+            subject(1, { _cycleId: c.id, value: 135 });
+          } else if (c.selector === '.bar') {
+            bar++;
+            assert.strictEqual(c.type, 'scroll');
+            subject(1, { _cycleId: c.id, value: 2 });
+          } else {
+            assert.fail('wrong selector: ' + c.selector);
+          }
+        } else {
+          assert.fail('missing command type in dom command');
+        }
+      })
+    );
+
+    setTimeout(() => {
+      assert.strictEqual(event, 1);
+      assert.strictEqual(foo, 1);
+      assert.strictEqual(bar, 1);
+      done();
+    }, 10);
   });
 
-  it('should make an Observable for clicks on `.foo`', function(done) {
-    const userEvents = mockDOMSource({
-      '.foo': {
-        click: of(135),
-      },
-    });
-    userEvents
-      .select('.foo')
-      .events('click')
-      .subscribe({
-        next: (ev: any) => {
-          assert.strictEqual(ev, 135);
-          done();
-        },
-        error: done,
-        complete: () => {},
-      });
-  });
+  /*it('should make multiple user event streams on the same selector', (done) => {
+    function Main(sources: { DOM: DomApi }) {
+      pipe(combineWith((a: any, b: any) => a.value + b.value
+    }
 
-  it('should make multiple user event Observables', function(done) {
-    const userEvents = mockDOMSource({
-      '.foo': {
-        click: of(135),
-      },
-      '.bar': {
-        scroll: of(2),
-      },
-    });
-    combineLatest(
-      userEvents.select('.foo').events('click'),
-      userEvents.select('.bar').events('scroll'),
-      (a: number, b: number) => a * b
-    ).subscribe({
-      next: ev => {
-        assert.strictEqual(ev, 270);
-        done();
-      },
-      error: done,
-      complete: () => {},
-    });
-  });
-
-  it('should make multiple user event Observables on the same selector', function(done) {
     const userEvents = mockDOMSource({
       '.foo': {
         click: of(135),
@@ -89,7 +122,7 @@ describe('mockDOMSource', function() {
     });
   });
 
-  it('should return an empty Observable if query does not match', function(done) {
+  /*it('should return an empty Observable if query does not match', function(done) {
     const userEvents = mockDOMSource({
       '.foo': {
         click: of(135),
@@ -318,5 +351,5 @@ describe('isolation on MockedDOMSource', function() {
         done();
       });
     run();
-  });
+  });*/
 });
